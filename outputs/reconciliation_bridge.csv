@@ -1,0 +1,7 @@
+step,description,result,adjustment,reason
+0,Naive count of all communication-log rows,30,,Starting point: every row is a send attempt
+1,Exclude ineligible campaign 9004,26,-4,Campaign 9004 is approval_awaiting and is excluded from official reporting
+2,Collapse retry family 9001 -> 9002 -> 9003,23,-3,13 attempts represent 10 distinct customers in one retry chain
+3,Collapse retry family 9201 -> 9202,22,-1,6 attempts represent 5 distinct customers in one retry chain
+4,Verify standalone campaign 9101 sends remain individual events,22,0,C20 appears twice but both are legitimate sends in a standalone campaign
+final,Finance target_base,22,,Reconciled to the reported number
