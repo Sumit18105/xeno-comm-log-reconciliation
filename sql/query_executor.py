@@ -4,13 +4,13 @@ import sqlite3
 # Read investigation SQL queries
 # ============================================================
 
-query_list = open("01_investigation.sql", "r").read().split(";")[:-1]
+query_list = open("sql\\01_investigation.sql", "r").read().split(";")[:-1]
 
 # ============================================================
 # Connect to SQLite database
 # ============================================================
 
-conn = sqlite3.connect("comm_log.db")
+conn = sqlite3.connect("sql\\comm_log.db")
 cursor = conn.cursor()
 
 # ============================================================
@@ -118,7 +118,7 @@ print("\n" + "=" * 73)
 print("====================== Final Reconciliation Result ======================")
 print("=" * 73)
 
-query_list1 = open("final_reconciliation.sql", "r").read()
+query_list1 = open("sql\\final_reconciliation.sql", "r").read()
 
 try:
 
