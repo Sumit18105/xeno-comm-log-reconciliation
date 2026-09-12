@@ -60,10 +60,6 @@ The reconciliation is therefore:
 
 `30 - 4 - 3 - 1 = 22`
 
-## What Surprised Me
-
-One thing that surprised me was that communication-log rows exist for campaign 9004 even though its creation status is `approval_awaiting`. This showed that the communication log alone cannot be used to determine reporting eligibility. I was also initially cautious about the repeated C20 records in standalone campaign 9101, but the data rules clarify that repeated sends within a standalone campaign are legitimate separate events, whereas repeated customers across retry campaigns represent the same underlying communication.
-
 ## Repository Structure
 
 ```text
@@ -76,9 +72,3 @@ xeno-comm-log-reconciliation/
 └── outputs/
     └── reconciliation_bridge.csv
 ```
-
-## Reproducing the Result
-
-The final query is written for SQLite and can be run against `data/comm_log.db` from the assignment package. It returns a single value: `22`.
-
-No dashboard, application, or product build is required; this repository focuses on the SQL investigation and analytical reconciliation requested by the assignment.
