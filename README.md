@@ -155,22 +155,13 @@ There are two ways to reproduce the analysis. The two SQL stages are **investiga
 
 ### Option A — Run the complete workflow with Python
 
-The Python wrapper is path-safe: it locates the SQL files and database relative to its own location. You can run it from either the repository root or from inside `sql/`.
-
-**From the repository root:**
+Run the Python wrapper **from the repository root**:
 
 ```bash
 python sql/query_executor.py
 ```
 
-**Or from inside the SQL folder:**
-
-```bash
-cd sql
-python query_executor.py
-```
-
-Both commands execute all investigation queries first and then execute the final reconciliation query. The script should finish with:
+The script executes all investigation queries first and then executes the final reconciliation query. It should finish with:
 
 ```text
 ====================== Final Reconciliation Result ======================
