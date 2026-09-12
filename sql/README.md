@@ -165,18 +165,11 @@ No external Python package is required. `sqlite3` and `pathlib` are part of Pyth
 
 ### Run from the repository root
 
+Run the script from the repository root so its current path assumptions match the project layout:
+
 ```bash
 python sql/query_executor.py
 ```
-
-### Or run from inside the `sql` folder
-
-```bash
-cd sql
-python query_executor.py
-```
-
-Both commands work and produce the same investigation-to-reconciliation workflow.
 
 The script should finish with output similar to:
 
