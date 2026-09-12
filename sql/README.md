@@ -13,7 +13,6 @@ This folder contains the SQL analysis and the small execution layer used for the
 - [Python Query Executor](#python-query-executor)
 - [How to Run](#how-to-run)
 - [Expected Result](#expected-result)
-- [Latest Update](#latest-update)
 
 ## Folder Purpose
 
@@ -157,35 +156,6 @@ Final Result:
 
 Target Base: 22
 ```
-
-## Latest Update
-
-### Commit
-
-`76513ab7a918ed9a048317c22b420b380c0a25c3`
-
-### Message
-
-`Added database and python wrapper to execute all queries`
-
-### Date
-
-September 12, 2026
-
-### What changed
-
-The SQL analysis was extended with a repository-level execution workflow:
-
-- `comm_log.db` was added under `sql/` so the repository includes the SQLite database used by the analysis.
-- `query_executor.py` was added as a Python wrapper around the existing SQL files.
-- Investigation statements in `01_investigation.sql` can now be executed sequentially.
-- Each investigation result is displayed with a separate terminal heading.
-- `final_reconciliation.sql` is executed automatically after the investigation.
-- The final result is printed clearly as `Target Base: 22`.
-
-### How to use the update
-
-Run one command from this directory:
 
 ```bash
 python query_executor.py
