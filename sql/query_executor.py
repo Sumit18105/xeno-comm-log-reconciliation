@@ -1,27 +1,16 @@
 import sqlite3
-from pathlib import Path
-
-# ============================================================
-# Locate files relative to this Python script
-# ============================================================
-
-sql_folder = Path(__file__).resolve().parent
-
-investigation_file = sql_folder / "01_investigation.sql"
-final_file = sql_folder / "final_reconciliation.sql"
-database_file = sql_folder / "comm_log.db"
 
 # ============================================================
 # Read investigation SQL queries
 # ============================================================
 
-query_list = investigation_file.read_text(encoding="utf-8").split(";")[:-1]
+query_list = open("sql\\01_investigation.sql", "r").read().split(";")[:-1]
 
 # ============================================================
 # Connect to SQLite database
 # ============================================================
 
-conn = sqlite3.connect(database_file)
+conn = sqlite3.connect("sql\\comm_log.db")
 cursor = conn.cursor()
 
 # ============================================================
@@ -64,6 +53,7 @@ for i, query in enumerate(query_list, start=1):
             "error": str(e)
         })
 
+
 # ============================================================
 # Display investigation results
 # ============================================================
@@ -87,37 +77,38 @@ for action in action_list:
     if lc_exist:
         lc_index = action["columns"].index("name")
 
-    for index, value in enumerate(action["columns"]):
+    for index,value in enumerate(action["columns"]):
         if not lc_exist or lc_index != index:
-            horizontal_border += "-" * column_width
+            horizontal_border += "-"*column_width
         else:
-            horizontal_border += "-" * 46
+            horizontal_border += "-"*46
         horizontal_border += "+"
 
     print(horizontal_border)
 
-    for index, value in enumerate(action["columns"]):
+    for index,value in enumerate(action["columns"]):
         cw = column_width
         if index == lc_index:
             cw = 46
         if index == 0:
-            print(f'|{str(value).center(cw, " ")}|', end="")
+            print(f'|{str(value).center(cw," ")}|',end="")
         else:
-            print(f'{str(value).center(cw, " ")}|', end="")
-    print()
+            print(f'{str(value).center(cw," ")}|',end="")
+    print() 
     print(horizontal_border)
 
     for row in action["results"]:
-        for index, value in enumerate(row):
+        for index,value in enumerate(row):
             cw = column_width
             if index == lc_index:
                 cw = 46
             if index == 0:
-                print(f'|{str(value).center(cw, " ")}|', end="")
+                print(f'|{str(value).center(cw," ")}|',end="")
             else:
-                print(f'{str(value).center(cw, " ")}|', end="")
+                print(f'{str(value).center(cw," ")}|',end="")
         print()
         print(horizontal_border)
+
 
 # ============================================================
 # Final Reconciliation Result
@@ -127,11 +118,12 @@ print("\n" + "=" * 73)
 print("====================== Final Reconciliation Result ======================")
 print("=" * 73)
 
-final_query = final_file.read_text(encoding="utf-8")
+query_list1 = open("sql\\final_reconciliation.sql", "r").read()
 
 try:
 
-    cursor.execute(final_query)
+    cursor.execute(query_list1)
+
     final_result = cursor.fetchall()
 
     print("\nFinal Result:")
@@ -146,6 +138,7 @@ except Exception as e:
 
     print("\nFinal reconciliation error:")
     print(e)
+
 
 # ============================================================
 # Close database connection
