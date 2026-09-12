@@ -5,86 +5,95 @@ This folder contains the SQL analysis, final reconciliation query, SQLite databa
 ## Table of Contents
 
 - [Folder Overview](#folder-overview)
-- [How the SQL Workflow Works](#how-the-sql-workflow-works)
+- [Workflow](#workflow)
 - [01 Investigation SQL](#01-investigation-sql)
 - [Final Reconciliation SQL](#final-reconciliation-sql)
 - [Python Query Executor](#python-query-executor)
 - [How to Run](#how-to-run)
-- [Expected Result](#expected-result)
+- [Expected Output](#expected-output)
 - [Latest Update](#latest-update)
 
 ## Folder Overview
 
 | File | Purpose |
 |---|---|
-| `01_investigation.sql` | Exploratory queries used to understand the raw communication data, campaign eligibility, retries, and campaign hierarchy |
-| `final_reconciliation.sql` | Final SQLite query that applies all reporting rules and returns `target_base` |
-| `query_executor.py` | Python wrapper that executes all investigation queries and the final reconciliation query |
-| `comm_log.db` | SQLite database used by the analysis |
+| `01_investigation.sql` | Exploratory SQL queries used to understand row counts, eligibility, campaign relationships, retries, and the communication families |
+| `final_reconciliation.sql` | Final SQLite query that applies the reporting rules and returns `target_base` |
+| `query_executor.py` | Python wrapper that runs the investigation queries and final reconciliation in sequence |
+| `comm_log.db` | SQLite database used by the analysis and Python execution workflow |
+| `README.md` | Documentation for the SQL files, execution flow, and latest changes |
 
-## How the SQL Workflow Works
+## Workflow
 
-The analysis follows this sequence:
+The SQL analysis follows this sequence:
 
 ```text
-Raw communication-log rows
-          ↓
-Check campaign eligibility
-          ↓
-Identify root/retry campaign families
-          ↓
-Collapse duplicate customers within retry families
-          ↓
+Communication log
+      ↓
+Naive count
+      ↓
+Campaign eligibility check
+      ↓
+Root / retry family identification
+      ↓
+Recursive campaign hierarchy
+      ↓
+Customer deduplication inside retry families
+      ↓
 Keep standalone send events separate
-          ↓
-Calculate Finance target_base
+      ↓
+Final target_base
 ```
 
-The final reconciliation is:
+For this dataset:
 
 ```text
-30  naive send-attempt rows
--4  ineligible campaign 9004
--3  duplicate attempts in retry family 9001 → 9002 → 9003
--1  duplicate attempt in retry family 9201 → 9202
+30  raw communication-log rows
+-4  exclude campaign 9004 (approval_awaiting)
+-3  collapse duplicate customers in 9001 → 9002 → 9003
+-1  collapse duplicate customer in 9201 → 9202
 ---
 22  final target_base
 ```
 
 ## 01 Investigation SQL
 
-`01_investigation.sql` contains the exploratory queries used before writing the final reconciliation logic.
+`01_investigation.sql` contains the exploratory queries used to build and validate the reconciliation logic before the final query was written.
 
-The queries cover:
+### What it investigates
 
-1. Establishing the naive communication-log row count.
-2. Inspecting send volume by campaign.
-3. Inspecting campaign eligibility statuses.
-4. Identifying root campaigns and retry campaigns.
-5. Inspecting the ineligible `9004` branch.
-6. Inspecting retry family `9001 → 9002 → 9003`.
-7. Inspecting retry family `9201 → 9202`.
-8. Verifying repeated sends in standalone campaign `9101`.
-9. Building a recursive campaign-family mapping.
+The file covers:
 
-These queries make the reasoning auditable rather than hiding the reconciliation inside one query.
+1. Naive communication-log row count.
+2. Send volume by campaign.
+3. Campaign creation and processing statuses.
+4. Root campaigns and retry campaigns.
+5. The ineligible `9004` branch.
+6. Retry family `9001 → 9002 → 9003`.
+7. Retry family `9201 → 9202`.
+8. Repeated sends in standalone campaign `9101`.
+9. Recursive campaign-family mapping.
+
+### Why it is separate
+
+The investigation file shows the reasoning and intermediate evidence. It is useful for reviewing how the final number was obtained rather than relying only on one final query.
 
 ## Final Reconciliation SQL
 
-`final_reconciliation.sql` contains the final query used to reproduce Finance's number.
+`final_reconciliation.sql` is the production-style query for the assignment result.
 
-It:
+It applies the following filters and rules:
 
-- restricts the analysis to merchant `501`;
-- restricts the period to October 2026;
-- restricts communication type to `2`;
-- filters campaigns using the eligible creation and processing statuses;
-- uses a recursive CTE to map every retry campaign to its root campaign;
-- treats a root with child campaigns as a retry family;
-- counts distinct customers within retry families;
-- counts every send event for standalone campaigns.
+- merchant `501`;
+- October 2026;
+- communication type `2`;
+- eligible creation statuses: `approved`, `aborted`, `resumed`, `stopped`;
+- `processing_status = 'processed'`;
+- recursive mapping of retry campaigns to their root campaign;
+- distinct-customer counting within retry families;
+- event-level counting for standalone campaigns.
 
-The query handles multi-level retry chains such as:
+It supports multi-level retry chains, including:
 
 ```text
 9001
@@ -99,27 +108,39 @@ and:
   └── 9202
 ```
 
+The final query returns:
+
+```text
+target_base
+-----------
+22
+```
+
 ## Python Query Executor
 
-`query_executor.py` is a lightweight Python wrapper for running the SQL workflow.
+`query_executor.py` is a lightweight execution wrapper. It does not implement the reconciliation rules; those remain in the SQL files.
 
-It does not contain the business reconciliation rules. Those rules remain in the SQL files. The Python script simply provides an easy way to execute and inspect the SQL.
+### What was added
 
-### What the script does
+The script:
 
-1. Opens `01_investigation.sql`.
-2. Splits the SQL file into individual statements.
-3. Connects to `comm_log.db` using Python's built-in `sqlite3` module.
-4. Executes each investigation query sequentially.
-5. Prints a heading for every query and displays its returned rows.
-6. Opens `final_reconciliation.sql`.
-7. Executes the final query.
-8. Prints the final `target_base`.
-9. Closes the database connection.
+- reads `01_investigation.sql`;
+- splits the file into individual SQL statements;
+- connects to `comm_log.db` with Python's built-in `sqlite3` module;
+- executes the investigation queries one by one;
+- prints a separate heading for each query;
+- displays the returned rows;
+- reads and executes `final_reconciliation.sql`;
+- prints the final result;
+- closes the database connection.
+
+This makes the complete investigation-to-reconciliation workflow executable with one command.
 
 ## How to Run
 
-Open a terminal in this `sql` directory:
+### Run everything with Python
+
+Open a terminal in the repository and move into this directory:
 
 ```bash
 cd sql
@@ -131,28 +152,27 @@ Then run:
 python query_executor.py
 ```
 
-No external Python package is required because `sqlite3` is included with Python.
+No external Python package is required. The script uses the standard-library `sqlite3` module.
 
 ### Run the SQL manually
 
-If you prefer to execute SQL directly, open `comm_log.db` in a SQLite-compatible tool and run `01_investigation.sql` first, followed by `final_reconciliation.sql`.
-
-The investigation queries show how the number is reconciled, while the final query returns the final answer.
-
-## Expected Result
-
-The final query should return:
+You can also open `comm_log.db` in a SQLite-compatible tool and run:
 
 ```text
-target_base
------------
-22
+01_investigation.sql
+final_reconciliation.sql
 ```
 
-The Python wrapper should end with output similar to:
+Run the investigation file first to inspect the evidence and then run the final reconciliation query for the final answer.
+
+## Expected Output
+
+The Python script prints each investigation query with its result and finishes with a section similar to:
 
 ```text
+=========================================================================
 ====================== Final Reconciliation Result ======================
+=========================================================================
 
 Final Result:
 (22,)
@@ -162,24 +182,33 @@ Target Base: 22
 
 ## Latest Update
 
-### Commit: `76513ab7a918ed9a048317c22b420b380c0a25c3`
+### Commit
 
-**Message:** `Added database and python wrapper to execute all queries`
+`76513ab7a918ed9a048317c22b420b380c0a25c3`
 
-**Date:** September 12, 2026
+### Message
 
-### What was updated
+`Added database and python wrapper to execute all queries`
 
-This update added the files required to execute the SQL workflow directly from the repository:
+### Date
 
-- Added `comm_log.db` as the SQLite database for the analysis.
-- Added `query_executor.py` as the Python execution wrapper.
-- The wrapper executes the investigation queries from `01_investigation.sql` one by one.
-- Query results are displayed with separate headings so each investigation step can be identified.
-- The wrapper executes `final_reconciliation.sql` after the investigation queries.
-- The final result is displayed as `Target Base: 22`.
+September 12, 2026
 
-### How to use the update
+### What changed in that update
+
+The repository previously contained the SQL analysis, but the execution workflow was manual. This update added the pieces needed to run the analysis directly from the repository:
+
+| Change | Details |
+|---|---|
+| Added database | `comm_log.db` is included under `sql/` so the SQL and Python workflow can run against the same SQLite data |
+| Added Python wrapper | `query_executor.py` executes the SQL investigation and final reconciliation |
+| Added sequential execution | All statements in `01_investigation.sql` are executed in order |
+| Added query headings | Each investigation query is clearly separated in the terminal output |
+| Added result display | Returned rows are printed after each investigation query |
+| Added final execution | `final_reconciliation.sql` runs automatically after the investigation |
+| Added final result display | The script prints `Target Base: 22` at the end |
+
+### How to use the new functionality
 
 From the `sql` directory:
 
@@ -187,4 +216,4 @@ From the `sql` directory:
 python query_executor.py
 ```
 
-This runs the complete investigation-to-reconciliation workflow without requiring every SQL statement to be executed manually.
+This command runs the complete workflow without requiring the SQL statements to be copied and executed manually one by one.
