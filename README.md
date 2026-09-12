@@ -1,139 +1,117 @@
-# Xeno Comm-Log Send Reconciliation
+# Xeno Data Analyst Take-Home — Comm-Log Reconciliation
 
-A SQL-based reconciliation of Finance's reported `target_base = 22` for merchant `501`, October 2026, communication type `2`.
+## Assignment Question
 
-## Table of Contents
+Finance reports `target_base = 22` for merchant `501` in October 2026 across the Diwali campaigns. The task is to reproduce that number from the raw communication data and explain the gap between the Finance number and a straightforward count.
 
-- [Project Overview](#project-overview)
-- [Objective](#objective)
-- [Data and Business Rules](#data-and-business-rules)
-- [Approach](#approach)
-- [Reconciliation Bridge](#reconciliation-bridge)
-- [Final SQL](#final-sql)
-- [How to Run](#how-to-run)
-- [Python Query Executor](#python-query-executor)
-- [Repository Structure](#repository-structure)
-- [Latest Update](#latest-update)
+The submission requirements are:
 
-## Project Overview
+1. Show a reconciliation bridge starting from the most naive query, with every adjustment in the order discovered and a short reason.
+2. Provide the SQL used to calculate the final correct number.
+3. Describe something surprising in the data, even if it does not change the final number.
 
-The task is to reproduce Finance's reported `target_base` from the supplied campaign and communication-log data.
+The analysis below is the answer to those requirements.
 
-A simple row count gives `30`, but the reporting rules require two important adjustments:
-
-1. Exclude communication rows belonging to campaigns that are not eligible for reporting.
-2. Treat retries as part of the same underlying communication and count the same customer once within a retry family.
-
-Standalone campaigns are different: each send event is counted separately.
-
-The analysis therefore combines campaign eligibility, recursive retry-family mapping, customer-level deduplication for retry families, and event-level counting for standalone campaigns.
-
-## Objective
-
-Reproduce:
-
-```text
-target_base = 22
-```
-
-Scope:
+## 1. Scope and Reporting Rules
 
 | Filter | Value |
 |---|---|
 | Merchant | `501` |
 | Period | October 2026 |
-| Communication type | `2` |
+| Communication type | `2` (Campaign) |
 
-## Data and Business Rules
+A campaign is eligible for reporting when `creation_status` is one of `approved`, `aborted`, `resumed`, or `stopped`, and `processing_status = 'processed'`. A campaign in `approval_awaiting` is not eligible even when communication-log rows exist.
 
-### Campaign eligibility
+For retry campaigns, `parent_id` links a campaign to its previous campaign. A retry chain represents the same underlying communication, so a customer is counted once across the eligible attempts in that family. Retry chains can be multiple levels deep.
 
-A campaign is eligible only when:
+A standalone campaign has no parent and no child retries. For a standalone campaign, each send event is counted separately, even if the same customer appears more than once.
 
-- `creation_status` is one of `approved`, `aborted`, `resumed`, `stopped`; and
-- `processing_status = 'processed'`.
+## 2. Investigation and Reconciliation
 
-`approval_awaiting` is not eligible, even if communication-log rows already exist.
+### Step 0 — Naive starting point
 
-### Retry campaigns
+First, count all communication-log rows in the requested scope.
 
-A retry is identified through `parent_id`. Retry chains may have more than one level, so the analysis maps each campaign to its root campaign using a recursive CTE.
-
-Within a retry family, a customer is counted once across all eligible attempts in that family.
-
-### Standalone campaigns
-
-A root campaign with no child retries is standalone. For a standalone campaign, every send event counts separately, even when the same customer appears more than once.
-
-## Approach
-
-### Step 0 — Naive count
-
-All communication-log rows in scope:
-
-```text
-30
+```sql
+SELECT COUNT(*)
+FROM communication_log
+WHERE merchant_id = 501
+  AND communication_type = '2'
+  AND sent_time >= '2026-10-01'
+  AND sent_time < '2026-11-01';
 ```
 
-### Step 1 — Exclude ineligible campaign `9004`
+**Result: 30**
 
-Campaign `9004` is `approval_awaiting` and contributes 4 communication rows. These rows are excluded.
+This is the most straightforward count, but it does not yet apply campaign eligibility or retry-family rules.
+
+### Step 1 — Exclude the ineligible campaign
+
+Campaign `9004` has `creation_status = 'approval_awaiting'`. It has 4 communication-log rows, but these rows are not eligible for official reporting.
 
 ```text
 30 - 4 = 26
 ```
 
-### Step 2 — Retry family `9001 → 9002 → 9003`
+**Adjustment: -4**
 
-This family has 13 raw attempts representing 10 distinct customers. Repeated attempts for C2 and C3 are retries of the same underlying communication.
+### Step 2 — Reconcile retry family `9001 → 9002 → 9003`
 
-```text
-26 - 3 = 23
-```
-
-### Step 3 — Retry family `9201 → 9202`
-
-This family has 6 raw attempts representing 5 distinct customers. D1 failed in `9201` and was retried in `9202`.
+The three campaigns form one retry family. There are 13 eligible send attempts but only 10 distinct customers in the family. Customers `C2` and `C3` appear across multiple attempts because of retries.
 
 ```text
-23 - 1 = 22
+26 - (13 - 10) = 23
 ```
 
-### Step 4 — Standalone campaign `9101`
+**Adjustment: -3**
 
-Campaign `9101` has 7 send events. C20 appears twice on different dates, but both events remain counted because `9101` is standalone.
+### Step 3 — Reconcile retry family `9201 → 9202`
 
-## Reconciliation Bridge
+This is another retry family. There are 6 eligible attempts but only 5 distinct customers. Customer `D1` failed in `9201` and was retried successfully in `9202`.
 
-| Step | Description | Result | Adjustment |
-|---:|---|---:|---:|
-| 0 | Naive count of all communication-log rows | 30 | — |
-| 1 | Exclude ineligible campaign `9004` | 26 | -4 |
-| 2 | Collapse retry family `9001 → 9002 → 9003` | 23 | -3 |
-| 3 | Collapse retry family `9201 → 9202` | 22 | -1 |
-| 4 | Keep standalone `9101` events separate | 22 | 0 |
-| **Final** | **Finance target_base** | **22** | |
+```text
+23 - (6 - 5) = 22
+```
 
-Final reconciliation:
+**Adjustment: -1**
+
+### Step 4 — Verify standalone campaign `9101`
+
+Campaign `9101` is standalone and has 7 send events. Customer `C20` appears twice on different dates, but these are separate legitimate send events rather than retries, so both remain counted.
+
+**Adjustment: 0**
+
+## 3. Reconciliation Bridge
+
+| Step | Description | Result | Adjustment | Reason |
+|---:|---|---:|---:|---|
+| 0 | Naive count of communication-log rows | 30 | — | Starting point: every row is a send attempt |
+| 1 | Exclude ineligible campaign `9004` | 26 | -4 | `approval_awaiting` campaigns are excluded from official reporting |
+| 2 | Collapse retry family `9001 → 9002 → 9003` | 23 | -3 | 13 attempts represent 10 distinct customers in one retry chain |
+| 3 | Collapse retry family `9201 → 9202` | 22 | -1 | 6 attempts represent 5 distinct customers in one retry chain |
+| 4 | Verify standalone campaign `9101` | 22 | 0 | Repeated `C20` sends are separate standalone events |
+| **Final** | **Finance `target_base`** | **22** | | **Reconciled** |
+
+### Final arithmetic
 
 ```text
 30 - 4 - 3 - 1 = 22
 ```
 
-## Final SQL
+## 4. Final SQL
 
-The final logic is implemented in [`sql/final_reconciliation.sql`](sql/final_reconciliation.sql).
+The final reconciliation query is in [`sql/final_reconciliation.sql`](sql/final_reconciliation.sql).
 
 It:
 
-- filters to merchant `501`, October 2026, communication type `2`;
-- applies campaign eligibility rules;
-- recursively maps retry campaigns to their root campaign;
-- identifies retry families versus standalone campaigns;
+- applies the merchant, date, and communication-type filters;
+- applies campaign eligibility;
+- recursively maps campaigns to their root campaign;
+- distinguishes retry families from standalone campaigns;
 - counts distinct customers within retry families; and
-- counts every send event in standalone campaigns.
+- counts individual send events for standalone campaigns.
 
-Expected result:
+The query returns:
 
 ```text
 target_base
@@ -141,63 +119,11 @@ target_base
 22
 ```
 
-## How to Run
+## 5. Surprising Finding
 
-### Option 1 — Run the Python wrapper
+One surprising aspect of the data is that campaign `9004` already has four communication-log rows even though its creation status is still `approval_awaiting`. Those rows therefore appear in the raw communication log but are excluded from the official metric because the campaign has not cleared the approval gate. Another interesting case is standalone campaign `9101`, where customer `C20` appears twice on different dates. Because this is a standalone campaign rather than a retry chain, both sends are legitimate separate events and should remain in the count.
 
-The simplest reproducible workflow is to run the Python wrapper from the `sql` directory:
-
-```bash
-cd sql
-python query_executor.py
-```
-
-The wrapper reads the investigation SQL, executes each statement, prints its results with a separate heading, and then runs the final reconciliation query.
-
-Expected ending:
-
-```text
-====================== Final Reconciliation Result ======================
-
-Final Result:
-(22,)
-
-Target Base: 22
-```
-
-### Option 2 — Run the SQL manually
-
-Open `sql/comm_log.db` in a SQLite-compatible environment and run:
-
-```text
-sql/01_investigation.sql
-sql/final_reconciliation.sql
-```
-
-Run the investigation file first to inspect the reasoning, then run the final query to obtain `target_base`.
-
-### Requirements
-
-- Python 3.x for `query_executor.py`.
-- No external Python packages are required; the wrapper uses the built-in `sqlite3` module.
-- A SQLite-compatible tool can be used for manual SQL execution.
-
-## Python Query Executor
-
-`sql/query_executor.py` is an execution helper, not the business-logic layer.
-
-It:
-
-1. Reads `01_investigation.sql`.
-2. Splits it into individual SQL statements.
-3. Connects to `comm_log.db` using Python's built-in `sqlite3` module.
-4. Executes the investigation statements sequentially.
-5. Prints a heading and the returned rows for each query.
-6. Reads and executes `final_reconciliation.sql`.
-7. Prints the final `target_base`.
-8. Closes the database connection.
-
-## Repository Structure
+## 6. Repository Files
 
 ```text
 xeno-comm-log-reconciliation/
@@ -215,39 +141,45 @@ xeno-comm-log-reconciliation/
 
 | File | Purpose |
 |---|---|
-| `README.md` | Overall project documentation, reasoning, result, and usage |
-| `sql/README.md` | Documentation specific to the SQL folder and its execution workflow |
-| `sql/01_investigation.sql` | Exploratory SQL used to inspect counts, eligibility, retries, and campaign hierarchy |
-| `sql/final_reconciliation.sql` | Final recursive SQL reconciliation query |
-| `sql/query_executor.py` | Python wrapper for running the investigation and final SQL |
-| `sql/comm_log.db` | SQLite database used by the execution workflow |
-| `outputs/reconciliation_bridge.csv` | Reconciliation bridge from 30 to 22 |
+| `README.md` | Main assignment question, investigation, reconciliation bridge, answer, and surprising finding |
+| `sql/01_investigation.sql` | Exploratory queries used to investigate the mismatch step by step |
+| `sql/final_reconciliation.sql` | Final SQL solution that returns `target_base = 22` |
+| `sql/query_executor.py` | Simple Python wrapper for executing the investigation and final SQL |
+| `sql/comm_log.db` | SQLite database used by the repository execution workflow |
+| `sql/README.md` | Technical documentation for the SQL folder and execution workflow |
+| `outputs/reconciliation_bridge.csv` | Machine-readable version of the reconciliation bridge |
 
-## Latest Update
+## 7. How to Reproduce
 
-### Commit
-
-The latest functional update added the local execution layer to the repository.
-
-**Commit:** `76513ab7a918ed9a048317c22b420b380c0a25c3`
-
-**Message:** `Added database and python wrapper to execute all queries`
-
-**Date:** September 12, 2026
-
-### What changed
-
-- Added `sql/comm_log.db` so the repository contains the SQLite database used by the analysis.
-- Added `sql/query_executor.py` to run the investigation SQL and final reconciliation from Python.
-- Added formatted headings and query-result output for the investigation steps.
-- Added automatic execution of `final_reconciliation.sql` after the investigation.
-- Added a clear final `Target Base: 22` output.
-
-### How to use the update
+### Run the investigation and final query with Python
 
 ```bash
 cd sql
 python query_executor.py
 ```
 
-This runs the repository's investigation-to-reconciliation workflow end to end.
+No external Python packages are required; the wrapper uses Python's built-in `sqlite3` module.
+
+### Run SQL manually
+
+Open `sql/comm_log.db` with a SQLite-compatible tool and run:
+
+```text
+sql/01_investigation.sql
+sql/final_reconciliation.sql
+```
+
+The final query should return `22`.
+
+## Final Answer
+
+**Finance's reported `target_base = 22` is fully reconciled:**
+
+```text
+30 naive rows
+- 4 ineligible campaign rows
+- 3 duplicate retry attempts in family 9001 → 9002 → 9003
+- 1 duplicate retry attempt in family 9201 → 9202
+-----------------------------------------------
+22 final target_base
+```
