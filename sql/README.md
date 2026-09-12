@@ -2,26 +2,16 @@
 
 This folder contains the SQL analysis and the small execution layer used for the Xeno communication-log reconciliation.
 
-> The root [`README.md`](../README.md) is the main project documentation. This README is intentionally focused on the files and workflow inside `sql/`.
-
-## Table of Contents
-
-- [Folder Purpose](#folder-purpose)
-- [Files](#files)
-- [Investigation SQL](#investigation-sql)
-- [Final Reconciliation SQL](#final-reconciliation-sql)
-- [Python Query Executor](#python-query-executor)
-- [How to Run](#how-to-run)
-- [Expected Result](#expected-result)
+> The root [`README.md`](../README.md) is the main project documentation. This README is intentionally focused on the files and execution workflow inside `sql/`.
 
 ## Folder Purpose
 
-The `sql/` folder contains everything needed to inspect the supplied SQLite data and reproduce Finance's `target_base = 22`:
+The `sql/` folder contains:
 
-- exploratory SQL;
+- the investigation SQL;
 - the final reconciliation SQL;
-- the SQLite database; and
-- a Python wrapper that executes the SQL workflow.
+- the supplied SQLite database; and
+- a Python wrapper for running the complete workflow.
 
 The reconciliation/business rules live in SQL. The Python file is only an execution and display helper.
 
@@ -35,11 +25,19 @@ The reconciliation/business rules live in SQL. The Python file is only an execut
 | `comm_log.db` | SQLite database used by the SQL and Python workflow |
 | `README.md` | Documentation for this SQL folder and its execution workflow |
 
-## Investigation SQL
+## Two-Stage SQL Workflow
 
-`01_investigation.sql` is the investigation layer. It is designed to show the evidence behind the final number rather than immediately returning only `22`.
+The analysis is intentionally split into two stages.
 
-### Queries covered
+### Stage 1 — Investigation
+
+Run:
+
+```text
+01_investigation.sql
+```
+
+This stage shows the evidence behind the reconciliation rather than only returning the final number. It covers:
 
 1. Naive communication-log row count.
 2. Communication volume by campaign.
@@ -51,7 +49,7 @@ The reconciliation/business rules live in SQL. The Python file is only an execut
 8. Standalone campaign `9101` and its repeated C20 send.
 9. Recursive campaign-family mapping.
 
-### Investigation outcome
+The investigation leads to:
 
 ```text
 30  raw rows
@@ -62,11 +60,15 @@ The reconciliation/business rules live in SQL. The Python file is only an execut
 22  final target_base
 ```
 
-## Final Reconciliation SQL
+### Stage 2 — Final Reconciliation
 
-`final_reconciliation.sql` is the final answer query.
+Run:
 
-It applies the assignment rules for:
+```text
+final_reconciliation.sql
+```
+
+This is the final answer query. It applies the assignment rules for:
 
 - merchant `501`;
 - October 2026;
@@ -77,17 +79,63 @@ It applies the assignment rules for:
 - one customer counted once within a retry family; and
 - every send event counted separately for a standalone campaign.
 
-The recursive structure handles multi-level chains such as:
+Expected result:
 
 ```text
-9001 → 9002 → 9003
+target_base
+-----------
+22
 ```
 
-and:
+## How to Open and Run Manually
+
+Both SQL stages must be run against the **same database**:
 
 ```text
-9201 → 9202
+comm_log.db
 ```
+
+In this repository, that database is:
+
+```text
+sql/comm_log.db
+```
+
+### Example — DB Browser for SQLite
+
+1. Open **DB Browser for SQLite** (or another SQLite-compatible tool).
+2. Choose **Open Database**.
+3. Select:
+
+```text
+sql/comm_log.db
+```
+
+4. Open the **Execute SQL** / SQL editor area.
+
+**Stage 1:** open or paste:
+
+```text
+sql/01_investigation.sql
+```
+
+Run the statements and inspect the results query by query.
+
+The first query should return:
+
+```text
+naive_count
+-----------
+30
+```
+
+**Stage 2:** in the same database/editor, open or paste:
+
+```text
+sql/final_reconciliation.sql
+```
+
+Run it after the investigation.
 
 Expected result:
 
@@ -97,59 +145,43 @@ target_base
 22
 ```
 
+> **Important:** `01_investigation.sql` and `final_reconciliation.sql` are SQL query files, not databases. The database to open is `sql/comm_log.db`.
+
 ## Python Query Executor
 
-`query_executor.py` provides a simple way to run the whole workflow without manually executing each SQL statement.
+`query_executor.py` provides a simple way to run both stages automatically.
 
-It does not contain the reconciliation logic. It only:
+It:
 
-1. reads `01_investigation.sql`;
-2. splits it into SQL statements;
-3. connects to `comm_log.db` with Python's built-in `sqlite3` module;
-4. executes the investigation queries in order;
-5. prints a heading and returned rows for each query;
-6. reads and executes `final_reconciliation.sql`;
-7. prints the final `target_base`; and
-8. closes the connection.
+1. locates the SQL files and database relative to the Python script itself;
+2. reads `01_investigation.sql`;
+3. executes the investigation queries in order;
+4. prints a heading and returned rows for each query;
+5. reads and executes `final_reconciliation.sql`;
+6. prints the final `target_base`; and
+7. closes the database connection.
 
-## How to Run
+No external Python package is required. `sqlite3` and `pathlib` are part of Python's standard library.
 
-From the repository root:
+### Run from the repository root
+
+```bash
+python sql/query_executor.py
+```
+
+### Or run from inside the `sql` folder
 
 ```bash
 cd sql
 python query_executor.py
 ```
 
-No external Python package is required. `sqlite3` is part of Python's standard library.
+Both commands work and produce the same investigation-to-reconciliation workflow.
 
-### Manual SQL execution
-
-You can also open `comm_log.db` in any SQLite-compatible tool and run:
+The script should finish with output similar to:
 
 ```text
-01_investigation.sql
-final_reconciliation.sql
-```
-
-Run the investigation first if you want to inspect the reasoning, then run the final query for the final result.
-
-## Expected Result
-
-The final query should return:
-
-```text
-target_base
------------
-22
-```
-
-The Python wrapper should finish with output similar to:
-
-```text
-=========================================================================
 ====================== Final Reconciliation Result ======================
-=========================================================================
 
 Final Result:
 (22,)
@@ -157,8 +189,30 @@ Final Result:
 Target Base: 22
 ```
 
-```bash
-python query_executor.py
+## Quick Reference
+
+```text
+xeno-comm-log-reconciliation/
+│
+├── sql/
+│   ├── comm_log.db               ← Open this database
+│   ├── 01_investigation.sql     ← Stage 1: investigate
+│   ├── final_reconciliation.sql  ← Stage 2: calculate final number
+│   └── query_executor.py        ← Run both stages automatically
+│
+└── README.md
 ```
 
-This executes the investigation-to-reconciliation workflow end to end using the included SQLite database.
+**Order:**
+
+```text
+Open sql/comm_log.db
+        ↓
+Stage 1: 01_investigation.sql
+        ↓
+Review evidence / reconciliation
+        ↓
+Stage 2: final_reconciliation.sql
+        ↓
+target_base = 22
+```
