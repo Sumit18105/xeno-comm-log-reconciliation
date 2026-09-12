@@ -141,35 +141,108 @@ xeno-comm-log-reconciliation/
 
 | File | Purpose |
 |---|---|
-| `README.md` | Main assignment question, investigation, reconciliation bridge, answer, and surprising finding |
+| `README.md` | Main assignment answer and project-level documentation |
 | `sql/01_investigation.sql` | Exploratory queries used to investigate the mismatch step by step |
 | `sql/final_reconciliation.sql` | Final SQL solution that returns `target_base = 22` |
-| `sql/query_executor.py` | Simple Python wrapper for executing the investigation and final SQL |
+| `sql/query_executor.py` | Python wrapper for executing the investigation and final SQL |
 | `sql/comm_log.db` | SQLite database used by the repository execution workflow |
 | `sql/README.md` | Technical documentation for the SQL folder and execution workflow |
 | `outputs/reconciliation_bridge.csv` | Machine-readable version of the reconciliation bridge |
 
 ## 7. How to Reproduce
 
-### Run the investigation and final query with Python
+There are two ways to reproduce the analysis. The two SQL stages are **investigation first** and **final reconciliation second**.
+
+### Option A — Run the complete workflow with Python
+
+The Python wrapper is path-safe: it locates the SQL files and database relative to its own location. You can run it from either the repository root or from inside `sql/`.
+
+**From the repository root:**
+
+```bash
+python sql/query_executor.py
+```
+
+**Or from inside the SQL folder:**
 
 ```bash
 cd sql
 python query_executor.py
 ```
 
+Both commands execute all investigation queries first and then execute the final reconciliation query. The script should finish with:
+
+```text
+====================== Final Reconciliation Result ======================
+
+Final Result:
+(22,)
+
+Target Base: 22
+```
+
 No external Python packages are required; the wrapper uses Python's built-in `sqlite3` module.
 
-### Run SQL manually
+### Option B — Open and run the two SQL stages manually
 
-Open `sql/comm_log.db` with a SQLite-compatible tool and run:
+If you want to inspect the work step by step, open the supplied database:
+
+```text
+sql/comm_log.db
+```
+
+Then run the SQL files in this order.
+
+#### Stage 1 — Investigation
+
+Open:
 
 ```text
 sql/01_investigation.sql
+```
+
+This stage does **not** produce only one final number. It shows the evidence used to understand the mismatch, including raw counts, campaign statuses, retry relationships, the ineligible `9004` rows, both retry families, the standalone campaign, and the recursive campaign mapping.
+
+Example workflow in a SQLite GUI such as DB Browser for SQLite:
+
+1. Open `sql/comm_log.db`.
+2. Go to the **Execute SQL** / SQL editor area.
+3. Open or paste `sql/01_investigation.sql`.
+4. Run the statements and inspect the result after each query.
+
+The first query should show the naive count of **30**.
+
+#### Stage 2 — Final reconciliation
+
+After reviewing the investigation, open:
+
+```text
 sql/final_reconciliation.sql
 ```
 
-The final query should return `22`.
+Run that query against the **same `sql/comm_log.db` database**.
+
+Expected result:
+
+```text
+target_base
+-----------
+22
+```
+
+**Important:** Do not open `final_reconciliation.sql` as if it were a separate database. Both SQL files are queries that must be executed against `comm_log.db`.
+
+### Quick reference
+
+```text
+Repository root
+│
+├── sql/comm_log.db              ← open this database
+│
+├── sql/01_investigation.sql    ← Stage 1: inspect and investigate
+│
+└── sql/final_reconciliation.sql ← Stage 2: calculate final target_base
+```
 
 ## Final Answer
 
